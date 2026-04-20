@@ -69,9 +69,7 @@ fn run(mut terminal: DefaultTerminal) -> io::Result<()> {
 
     loop {
         let msg = last_key.clone();
-        let dirs_clone = dirs.clone();
-        let current_dir_clone = current_dir.clone();
-        let current_path_text = current_dir_clone.clone().to_str().unwrap().to_string();
+	      let current_path_text = current_dir.to_str().unwrap_or("").to_string();
 
         terminal.draw(|frame| {
          
@@ -104,7 +102,7 @@ fn run(mut terminal: DefaultTerminal) -> io::Result<()> {
               .centered()
               .style(Style::default().fg(Color::Yellow));
 
-          let items: Vec<ListItem> = dirs_clone
+          let items: Vec<ListItem> = dirs
               .iter()
               .map(|d| {
                 if d.as_str() == dirs[index]{
@@ -138,7 +136,7 @@ fn run(mut terminal: DefaultTerminal) -> io::Result<()> {
                   }
                   KeyCode::Left => { 
                      last_key = String::from("Left!");
-                     let read_dir = dir_movement("..", &current_dir_clone);
+                     let read_dir = dir_movement("..", &current_dir);
                      current_dir = read_dir.clone();
                      dirs = get_entries(read_dir);
                   },
@@ -148,7 +146,7 @@ fn run(mut terminal: DefaultTerminal) -> io::Result<()> {
                       .splitn(2, " ")
                       .nth(1)
                       .unwrap_or(&dirs[index]);
-                    let read_dir = dir_movement(folder_name, &current_dir_clone);
+                    let read_dir = dir_movement(folder_name, &current_dir);
                     current_dir = read_dir;
                     dirs = get_entries(current_dir.clone());
                     index = 0;
