@@ -2,8 +2,10 @@ use std::{io, fs, env};
 use std::path::{Path, PathBuf};
 use ratatui::{
     crossterm::event::{self, KeyCode, KeyEventKind},
+    crossterm::terminal::SetSize,
+    crossterm::execute,
     style::{Stylize, Color, Style},
-    widgets::{Block, Paragraph, List, ListItem},
+    widgets::{Block, Paragraph, List, ListItem, ListState},
     layout::{Constraint, Layout},
     DefaultTerminal,
 };
@@ -54,6 +56,7 @@ fn get_entries(path: PathBuf) -> Vec<String> {
 
 fn main() -> io::Result<()> {
     let mut terminal = ratatui::init();
+    execute!(io::stdout(), SetSize(100, 110))?;
     terminal.clear()?;
     let result = run(terminal);
     ratatui::restore();
@@ -66,6 +69,8 @@ fn run(mut terminal: DefaultTerminal) -> io::Result<()> {
     let current_dir_cl = current_dir.clone();
     let mut dirs = get_entries(current_dir_cl);
     let mut index = 0;
+    let mut list_state = ListState::default();
+    list_state.select(Some(0));
 
     loop {
         let msg = last_key.clone();
@@ -104,22 +109,17 @@ fn run(mut terminal: DefaultTerminal) -> io::Result<()> {
 
           let items: Vec<ListItem> = dirs
               .iter()
-              .map(|d| {
-                if d.as_str() == dirs[index]{
-                  ListItem::new(d.as_str()).style(Style::default().fg(Color::Black).bg(Color::White))
-                } else {
-                  ListItem::new(d.as_str()).style(Style::default().fg(Color::Green))
-                }
-              })
+              .map(|d| ListItem::new(d.as_str()).style(Style::default().fg(Color::Green)))
               .collect();
 
-          let dir_list = List::new(items);
+          let dir_list = List::new(items)
+              .highlight_style(Style::default().fg(Color::Black).bg(Color::White));
 
           frame.render_widget(greeting, areas[0]);
           frame.render_widget(movement, areas[1]);
           frame.render_widget(dir_label, areas[2]);
           frame.render_widget(dir_path_label, areas[3]);
-          frame.render_widget(dir_list, areas[5]);
+          frame.render_stateful_widget(dir_list, areas[5], &mut list_state);
         })?;
 
         if let event::Event::Key(key) = event::read()? {
@@ -129,16 +129,20 @@ fn run(mut terminal: DefaultTerminal) -> io::Result<()> {
                   KeyCode::Up => {
                     last_key = String::from("Up!");
                     index = (index + dirs.len() - 1) % dirs.len();
+                    list_state.select(Some(index));
                   }
                   KeyCode::Down => {
                     last_key = String::from("Down!");
                     index = (index + 1) % dirs.len();
+                    list_state.select(Some(index));
                   }
                   KeyCode::Left => { 
                      last_key = String::from("Left!");
                      let read_dir = dir_movement("..", &current_dir);
                      current_dir = read_dir.clone();
                      dirs = get_entries(read_dir);
+                     index = 0;
+                     list_state.select(Some(index));
                   },
                   KeyCode::Right => {
                     last_key = String::from("Right!");
@@ -150,6 +154,7 @@ fn run(mut terminal: DefaultTerminal) -> io::Result<()> {
                     current_dir = read_dir;
                     dirs = get_entries(current_dir.clone());
                     index = 0;
+                    list_state.select(Some(index));
                   }
                   _ => {}
               }
