@@ -10,6 +10,41 @@ use ratatui::{
     DefaultTerminal,
 };
 
+#[derive(Clone, PartialEq)]
+enum ClipboardMode {
+    Copy,
+    Cut,
+}
+
+fn entry_name(entry: &str) -> &str {
+    entry.splitn(2, " ").nth(1).unwrap_or(entry)
+}
+
+fn copy_recursive(src: &Path, dst: &Path) -> io::Result<()> {
+    if src.is_dir() {
+        fs::create_dir_all(dst)?;
+        for entry in fs::read_dir(src)?.flatten() {
+            let dst_child = dst.join(entry.file_name());
+            copy_recursive(&entry.path(), &dst_child)?;
+        }
+    } else {
+        fs::copy(src, dst)?;
+    }
+    Ok(())
+}
+
+fn move_item(src: &Path, dst: &Path) -> io::Result<()> {
+    if fs::rename(src, dst).is_ok() {
+        return Ok(());
+    }
+    copy_recursive(src, dst)?;
+    if src.is_dir() {
+        fs::remove_dir_all(src)
+    } else {
+        fs::remove_file(src)
+    }
+}
+
 fn dir_movement(input: &str, dir: &Path) -> PathBuf {
     if Path::new(input).is_absolute(){
         PathBuf::from(input)
@@ -78,10 +113,22 @@ fn run(mut terminal: DefaultTerminal) -> io::Result<()> {
     let mut index = 0;
     let mut list_state = ListState::default();
     list_state.select(Some(0));
+    let mut clipboard: Option<(PathBuf, ClipboardMode)> = None;
 
     loop {
         let msg = last_key.clone();
 	      let current_path_text = current_dir.to_str().unwrap_or("").to_string();
+        let clipboard_text = match &clipboard {
+            Some((path, ClipboardMode::Copy)) => format!(
+                "📋 {}",
+                path.file_name().and_then(|n| n.to_str()).unwrap_or("")
+            ),
+            Some((path, ClipboardMode::Cut)) => format!(
+                "✂️ {}",
+                path.file_name().and_then(|n| n.to_str()).unwrap_or("")
+            ),
+            None => String::new(),
+        };
 
         terminal.draw(|frame| {
          
@@ -114,6 +161,10 @@ fn run(mut terminal: DefaultTerminal) -> io::Result<()> {
               .centered()
               .style(Style::default().fg(Color::Yellow));
 
+          let clipboard_label = Paragraph::new(clipboard_text)
+              .centered()
+              .style(Style::default().fg(Color::Magenta));
+
           let items: Vec<ListItem> = dirs
               .iter()
               .map(|d| ListItem::new(d.as_str()).style(Style::default().fg(Color::Green)))
@@ -126,6 +177,7 @@ fn run(mut terminal: DefaultTerminal) -> io::Result<()> {
           frame.render_widget(movement, areas[1]);
           frame.render_widget(dir_label, areas[2]);
           frame.render_widget(dir_path_label, areas[3]);
+          frame.render_widget(clipboard_label, areas[4]);
           frame.render_stateful_widget(dir_list, areas[5], &mut list_state);
         })?;
 
@@ -158,15 +210,74 @@ fn run(mut terminal: DefaultTerminal) -> io::Result<()> {
                   KeyCode::Right => {
                     last_key = String::from("Right!");
                     if !dirs.is_empty() {
-                      let folder_name = dirs[index]
-                        .splitn(2, " ")
-                        .nth(1)
-                        .unwrap_or(&dirs[index]);
+                      let folder_name = entry_name(&dirs[index]);
                       let read_dir = dir_movement(folder_name, &current_dir);
                       current_dir = read_dir;
                       dirs = get_entries(current_dir.clone());
                       index = 0;
                       list_state.select(Some(index));
+                    }
+                  }
+                  KeyCode::Char('c') => {
+                    if !dirs.is_empty() {
+                      let name = entry_name(&dirs[index]);
+                      let path = current_dir.join(name);
+                      if path.exists() {
+                        last_key = format!("Copied: {}", name);
+                        clipboard = Some((path, ClipboardMode::Copy));
+                      }
+                    }
+                  }
+                  KeyCode::Char('x') => {
+                    if !dirs.is_empty() {
+                      let name = entry_name(&dirs[index]);
+                      let path = current_dir.join(name);
+                      if path.exists() {
+                        last_key = format!("Cut: {}", name);
+                        clipboard = Some((path, ClipboardMode::Cut));
+                      }
+                    }
+                  }
+                  KeyCode::Char('v') => {
+                    if let Some((src, mode)) = clipboard.clone() {
+                      if let Some(file_name) = src.file_name() {
+                        let dst = current_dir.join(file_name);
+                        if dst == src {
+                          last_key = String::from("Can't paste into itself!");
+                        } else if dst.exists() {
+                          last_key = format!(
+                              "Already exists: {}",
+                              file_name.to_str().unwrap_or("")
+                          );
+                        } else {
+                          let outcome = match mode {
+                              ClipboardMode::Copy => copy_recursive(&src, &dst),
+                              ClipboardMode::Cut => move_item(&src, &dst),
+                          };
+                          match outcome {
+                              Ok(()) => {
+                                last_key = String::from("Pasted!");
+                                if mode == ClipboardMode::Cut {
+                                  clipboard = None;
+                                }
+                                dirs = get_entries(current_dir.clone());
+                                index = 0;
+                                list_state.select(Some(index));
+                              }
+                              Err(e) => {
+                                last_key = format!("Paste failed: {}", e);
+                              }
+                          }
+                        }
+                      }
+                    } else {
+                      last_key = String::from("Clipboard empty!");
+                    }
+                  }
+                  KeyCode::Char('l') => {
+                    if clipboard.is_some() {
+                      clipboard = None;
+                      last_key = String::from("Clipboard cleared!");
                     }
                   }
                   _ => {}
