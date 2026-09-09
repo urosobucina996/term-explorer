@@ -2,7 +2,7 @@ use std::{io, fs, env};
 use std::path::{Path, PathBuf};
 use ratatui::{
     crossterm::event::{self, KeyCode, KeyEventKind},
-    crossterm::terminal::SetSize,
+    crossterm::terminal::{SetSize, size},
     crossterm::execute,
     style::{Stylize, Color, Style},
     widgets::{Block, Paragraph, List, ListItem, ListState},
@@ -35,17 +35,22 @@ fn get_entries(path: PathBuf) -> Vec<String> {
     let mut dirs = Vec::new();
     let mut files = Vec::new();
     
-    if let Ok(entries) = fs::read_dir(path) {
-        for entry in entries.flatten() {
-            if let Ok(metadata) = entry.metadata(){
-                if let Some(name) = entry.file_name().to_str() {
-                    if metadata.is_dir(){
-                        dirs.push(format!("📁 {}", name));
-                    } else {
-                        files.push(format!("📄 {}", name));
+    match fs::read_dir(path) {
+        Ok(entries) => {
+            for entry in entries.flatten() {
+                if let Ok(metadata) = entry.metadata(){
+                    if let Some(name) = entry.file_name().to_str() {
+                        if metadata.is_dir(){
+                            dirs.push(format!("📁 {}", name));
+                        } else {
+                            files.push(format!("📄 {}", name));
+                        }
                     }
                 }
             }
+        }
+        Err(_) => {
+            dirs.push(String::from("⛔ Permission denied"));
         }
     }
     dirs.sort();
@@ -55,10 +60,12 @@ fn get_entries(path: PathBuf) -> Vec<String> {
 }
 
 fn main() -> io::Result<()> {
+    let original_size = size()?;
     let mut terminal = ratatui::init();
     execute!(io::stdout(), SetSize(100, 110))?;
     terminal.clear()?;
     let result = run(terminal);
+    execute!(io::stdout(), SetSize(original_size.0, original_size.1))?;
     ratatui::restore();
     result
 }
@@ -128,15 +135,19 @@ fn run(mut terminal: DefaultTerminal) -> io::Result<()> {
                   KeyCode::Char('q') => return  Ok(()) ,
                   KeyCode::Up => {
                     last_key = String::from("Up!");
-                    index = (index + dirs.len() - 1) % dirs.len();
-                    list_state.select(Some(index));
+                    if !dirs.is_empty() {
+                      index = (index + dirs.len() - 1) % dirs.len();
+                      list_state.select(Some(index));
+                    }
                   }
                   KeyCode::Down => {
                     last_key = String::from("Down!");
-                    index = (index + 1) % dirs.len();
-                    list_state.select(Some(index));
+                    if !dirs.is_empty() {
+                      index = (index + 1) % dirs.len();
+                      list_state.select(Some(index));
+                    }
                   }
-                  KeyCode::Left => { 
+                  KeyCode::Left => {
                      last_key = String::from("Left!");
                      let read_dir = dir_movement("..", &current_dir);
                      current_dir = read_dir.clone();
@@ -146,15 +157,17 @@ fn run(mut terminal: DefaultTerminal) -> io::Result<()> {
                   },
                   KeyCode::Right => {
                     last_key = String::from("Right!");
-                    let folder_name = dirs[index]
-                      .splitn(2, " ")
-                      .nth(1)
-                      .unwrap_or(&dirs[index]);
-                    let read_dir = dir_movement(folder_name, &current_dir);
-                    current_dir = read_dir;
-                    dirs = get_entries(current_dir.clone());
-                    index = 0;
-                    list_state.select(Some(index));
+                    if !dirs.is_empty() {
+                      let folder_name = dirs[index]
+                        .splitn(2, " ")
+                        .nth(1)
+                        .unwrap_or(&dirs[index]);
+                      let read_dir = dir_movement(folder_name, &current_dir);
+                      current_dir = read_dir;
+                      dirs = get_entries(current_dir.clone());
+                      index = 0;
+                      list_state.select(Some(index));
+                    }
                   }
                   _ => {}
               }
